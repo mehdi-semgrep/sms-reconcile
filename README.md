@@ -13,6 +13,27 @@ Built for deployments with thousands of projects: every run starts with a
 read-only plan, applies are idempotent (already-correct projects are skipped),
 429s are honoured, and every run can emit a JSON report.
 
+## Project layout
+
+```
+src/sms_reconcile/
+  cli.py            click commands: plan / apply / verify, exit codes, mass-disable guard
+  client.py         httpx wrapper for the Semgrep API: retries, Retry-After, shared 429 pause
+  sources.py        list ingestion: CSV/TSV, JSON, plain text, URL normalisation
+  planner.py        matching (full or bare name), include/exclude modes, plan actions
+  executor.py       apply via v1 per-project PATCH or experimental v2 bulk PATCH; drift check
+  report.py         table rendering and the JSON run report
+  logging_utils.py  token redaction, ids-only logging policy
+tests/
+  conftest.py       stateful fake of the Semgrep API mounted on respx
+  test_cli.py       end-to-end CLI behaviour (all HTTP mocked)
+  test_sources.py   list formats
+  test_scale.py     5,000-project Azure DevOps-style rehearsal
+  test_units.py     encoding, Retry-After parsing, shared pause
+examples/repos.csv  minimal list file
+.env.example        the one environment variable, with an empty value
+```
+
 ## Install
 
 Requires Python 3.10+. Dependencies are pinned (`httpx`, `click`; `pytest`
@@ -339,6 +360,15 @@ stopped. Reports contain project names and ids. They never contain the token.
 All HTTP is mocked with `respx`; the suite never contacts the network. The
 GitHub Actions workflow in `.github/workflows/ci.yml` runs the suite on
 Python 3.10, 3.12 and 3.13 and smoke-tests the built wheel.
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `SEMGREP_APP_TOKEN` | yes | Semgrep API token with the **Web API** scope. The only way the token is accepted: no flag, no config file. Copy `.env.example` to `.env` if you use direnv or `dotenv`; `.env` is git-ignored. |
+
+Nothing else is read from the environment, and only `https://semgrep.dev` is
+ever contacted.
 
 ## Support
 
