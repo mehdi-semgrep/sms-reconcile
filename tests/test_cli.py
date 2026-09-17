@@ -563,3 +563,47 @@ def test_only_changes_hides_unlisted(router, runner, tmp_path):
     lst = write_list(tmp_path, ["acme/listed-on"])
     res = invoke(runner, "plan", "--mode", "exclude", "--only-changes", "--slug", SLUG, "--list", str(lst))
     assert "unlisted-on" not in res.stdout and "listed-on" in res.stdout
+
+
+# --- unknown-state ---------------------------------------------------------------
+def test_unknown_state_is_visible_and_not_patched(router, runner, tmp_path):
+    """Tagged managed-scan but the settings endpoint returns nothing: report, do not write."""
+    api = FakeApi(router, _projects(("acme/ghost", ["managed-scan"]), ("acme/normal", ["managed-scan"])), {100: None, 101: (True, True)})
+    lst = write_list(tmp_path, ["acme/nothing"])
+    res = invoke(runner, "plan", "--slug", SLUG, "--list", str(lst))
+    assert _rows(res.stdout)["acme/ghost"] == "unknown-state"
+    assert "1 project(s) are unknown-state" in res.stderr
+    res = invoke(runner, "apply", "--yes", "--slug", SLUG, "--list", str(lst), "--report", str(tmp_path / "r.json"))
+    assert res.exit_code == 0, res.output
+    assert api.toggle.call_count == 1 and "normal" in api.toggle.calls[0].request.url.raw_path.decode()
+    report = json.loads((tmp_path / "r.json").read_text())
+    assert report["summary"]["unknown-state"] == 1
+
+
+def test_patch_unknown_opts_in(router, runner, tmp_path):
+    api = FakeApi(router, _projects(("acme/ghost", ["managed-scan"])), {100: None})
+    lst = write_list(tmp_path, ["acme/ghost"])
+    res = invoke(runner, "apply", "--yes", "--patch-unknown", "--slug", SLUG, "--list", str(lst))
+    assert res.exit_code == 0, res.output
+    assert api.toggle.call_count == 1 and api.settings[100] == (True, True)
+
+
+def test_unknown_state_not_counted_by_guard(router, runner, tmp_path):
+    """Unknown-state projects are neither disables nor part of the managed denominator."""
+    projects = _projects(*[(f"acme/repo-{i}", ["managed-scan"]) for i in range(12)])
+    settings = {p["id"]: (True, True) for p in projects[:2]}
+    settings.update({p["id"]: None for p in projects[2:]})  # 10 unknown
+    api = FakeApi(router, projects, settings)
+    lst = write_list(tmp_path, ["acme/none"])
+    res = invoke(runner, "apply", "--yes", "--slug", SLUG, "--list", str(lst))
+    assert res.exit_code == 0, res.output  # 2 disables of 2 managed: under the floor of 10
+    assert api.toggle.call_count == 2
+
+
+def test_settings_read_failure_aborts_before_any_write(router, runner, tmp_path):
+    api = FakeApi(router, _projects(("acme/a", ["managed-scan"])), {100: (True, True)})
+    api.project_settings.side_effect = lambda request: httpx.Response(503)
+    lst = write_list(tmp_path, ["acme/none"])
+    res = invoke(runner, "apply", "--yes", "--max-retries", "0", "--slug", SLUG, "--list", str(lst))
+    assert res.exit_code == 1 and "503" in res.stderr
+    assert api.mutating_call_count == 0

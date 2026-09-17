@@ -28,6 +28,7 @@ NOT_FOUND = "not-found-in-deployment"
 EXCLUDED = "excluded"
 AMBIGUOUS = "ambiguous"
 UNLISTED = "unlisted"  # exclude mode only: not on the list, deliberately left alone
+UNKNOWN_STATE = "unknown-state"  # tagged managed-scan but the settings endpoint returned nothing
 
 MODES = ("include", "exclude")
 
@@ -101,6 +102,7 @@ def build_plan(
     exclude_patterns: Optional[list[str]] = None,
     allow_ambiguous: bool = False,
     mode: str = "include",
+    patch_unknown: bool = False,
 ) -> Plan:
     """Build the plan.
 
@@ -108,6 +110,10 @@ def build_plan(
     is disabled (the list is the complete desired state).
     ``mode="exclude"``: listed projects are disabled, every other project is left
     untouched (``unlisted``).
+
+    A project tagged ``managed-scan`` whose settings could not be read is
+    reported as ``unknown-state`` and left alone unless ``patch_unknown`` is
+    set, in which case it is enabled/disabled like any other managed project.
     """
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
@@ -171,6 +177,9 @@ def build_plan(
             continue
         if desired is None:  # exclude mode, not listed
             items.append(PlanItem(p.id, p.name, state.diff_scan, state.full_scan, None, UNLISTED, "not on exclude list; left untouched", entries))
+            continue
+        if not state.configured and not patch_unknown:
+            items.append(PlanItem(p.id, p.name, None, None, desired, UNKNOWN_STATE, "tagged managed-scan but settings unreadable; pass --patch-unknown to act", entries))
             continue
 
         current_on = state.diff_scan is True and state.full_scan is True

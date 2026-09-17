@@ -17,7 +17,7 @@ from . import __version__
 from .client import TOKEN_ENV, ApiError, Deployment, RetryPolicy, SemgrepClient
 from .executor import apply_bulk, apply_v1, find_drift
 from .logging_utils import NamePolicy, configure_logging, install_redaction
-from .planner import DISABLE, ENABLE, EXCLUDED, MODES, NOT_FOUND, NOT_MANAGED, UNLISTED, Plan, build_plan, load_list
+from .planner import DISABLE, ENABLE, EXCLUDED, MODES, NOT_FOUND, NOT_MANAGED, UNKNOWN_STATE, UNLISTED, Plan, build_plan, load_list
 from .report import RunReport, render_summary, render_table
 from .sources import FORMATS, ListFormatError
 
@@ -48,6 +48,7 @@ CONFIG_KEYS = {
     "exclude_pattern": "exclude_patterns",
     "exclude_patterns": "exclude_patterns",
     "allow_ambiguous": "allow_ambiguous",
+    "patch_unknown": "patch_unknown",
     "only_changes": "only_changes",
     "report": "report_path",
     "no_report": "no_report",
@@ -130,6 +131,7 @@ common_options = [
     click.option("--match", type=click.Choice(["full", "repo"]), default="full", show_default=True, help="Match list entries against full Semgrep project names or bare repository names."),
     click.option("--exclude-pattern", "exclude_patterns", multiple=True, help="Glob of project names to leave untouched (repeatable), e.g. 'local_scan/*'."),
     click.option("--allow-ambiguous", is_flag=True, help="With --match repo, select every project a bare name matches instead of skipping them."),
+    click.option("--patch-unknown", is_flag=True, help="Also enable/disable projects tagged managed-scan whose current settings could not be read (default: report them as unknown-state and leave them alone)."),
     click.option("--only-changes", is_flag=True, help="Print only rows that need attention (hide no-op, not-managed, excluded, unlisted)."),
     click.option("--report", "report_path", type=click.Path(dir_okay=False, path_type=Path), default=None, help="Where to write the JSON run report. Default: sms-reconcile-<command>-<UTC time>.json in the current directory."),
     click.option("--no-report", is_flag=True, help="Do not write a JSON run report."),
@@ -193,6 +195,7 @@ class Context:
             exclude_patterns=list(self.exclude_patterns),
             allow_ambiguous=self.allow_ambiguous,
             mode=self.mode,
+            patch_unknown=self.patch_unknown,
         )
         report.set_plan(plan)
         self.list_entry_count = len(entries)
@@ -262,7 +265,7 @@ def _guard_mass_disable(plan: Plan, list_entries: int, max_disable: Optional[int
     if allow or mode == "exclude":
         return None
     disables = len(plan.by_action(DISABLE))
-    managed = sum(1 for i in plan.items if i.action not in (NOT_MANAGED, NOT_FOUND, EXCLUDED, UNLISTED))
+    managed = sum(1 for i in plan.items if i.action not in (NOT_MANAGED, NOT_FOUND, EXCLUDED, UNLISTED, UNKNOWN_STATE))
     if list_entries == 0 and disables:
         return (
             f"the list is empty but the plan would disable {disables} project(s). "
@@ -309,6 +312,9 @@ def plan(**kw) -> None:
         msg = _guard_mass_disable(plan_, ctx.list_entry_count, None, False, ctx.mode)
         if msg:
             click.echo(f"note: apply would refuse this plan by default: {msg}", err=True)
+        unknown = len(plan_.by_action(UNKNOWN_STATE))
+        if unknown:
+            click.echo(f"note: {unknown} project(s) are unknown-state and will not be changed unless --patch-unknown is passed", err=True)
         return EXIT_OK
 
     _run("plan", "read-only", kw, body)

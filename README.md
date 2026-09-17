@@ -115,9 +115,10 @@ All three commands take the same core options:
   should have Managed Scans. Listed projects are enabled; every other managed
   project is disabled. Use this when the list is the source of truth.
 * `--mode exclude`. The list is what to **turn off**. Listed projects are
-  disabled; every other project is reported as `unlisted` and never touched.
-  Nothing is ever enabled in this mode. Use this to switch off a known set of
-  repos without asserting anything about the rest.
+  disabled; a listed project that is already off is a `no-op`; every other
+  project is reported as `unlisted` and never touched. Nothing is ever
+  enabled in this mode. Use this to switch off a known set of repos without
+  asserting anything about the rest.
 
 The mass-disable guard only applies in include mode, where a short or empty
 list silently means "disable almost everything". In exclude mode each disable
@@ -140,6 +141,7 @@ Prints one row per project with current state, desired state and action:
 | `excluded` | Matches an `--exclude-pattern`. Never PATCHed. |
 | `ambiguous` | A bare name in the list matches several projects. Never PATCHed unless `--allow-ambiguous`. |
 | `unlisted` | Exclude mode only: not on the list, deliberately left alone. |
+| `unknown-state` | Tagged `managed-scan` but the settings endpoint returned nothing for it. Never PATCHed unless `--patch-unknown` is passed. |
 | `not-found-in-deployment` | A list entry that matches no project. Reported so you can fix the list. |
 
 `plan` makes no mutating calls. It uses `GET .../projects` (paginated) and the
@@ -176,7 +178,9 @@ therefore refuses, with exit code `3` and nothing changed, when:
 
 `plan` prints a note when it sees a plan that `apply` would refuse. Raise the
 limit with `--max-disable N` once you have reviewed the plan, or switch the
-guard off entirely with `--allow-mass-disable`.
+guard off entirely with `--allow-mass-disable`. If both are passed,
+`--allow-mass-disable` wins and `--max-disable` is ignored, including the
+empty-list refusal.
 
 #### `--bulk` uses an experimental endpoint
 
@@ -280,8 +284,11 @@ with slashes kept literal (`some-org/Some Project/some-repo` becomes
 
 ## Runbook: Azure DevOps auto-enrolment at scale
 
-Connecting an Azure DevOps project to Managed Scans enrols every repository in
-it. This is how to bring a deployment with thousands of ADO repos back to the
+In our experience, connecting an Azure DevOps project to Managed Scans
+enrols every repository in that project, not only the ones you intended to
+scan. The Semgrep documentation describes scanning "all the repositories in
+batches" after enabling, so treat this as observed behaviour that may change.
+This is how to bring a deployment with many ADO repos back to the
 source-of-truth list. Semgrep names ADO projects `org/project/repo`, and
 project names may contain spaces.
 
@@ -352,7 +359,11 @@ stopped. Reports contain project names and ids. They never contain the token.
   tagged `managed-scan` or reported with settings by the `project_settings`
   endpoint. Everything else is `not-managed`.
 * A project whose current state cannot be read (tagged `managed-scan` but
-  with no settings returned) is PATCHed to its desired state.
+  with no settings returned) is reported as `unknown-state` and left alone.
+  `plan` prints a note with the count. Pass `--patch-unknown` to have such
+  projects enabled/disabled like the rest. A failed settings read aborts the
+  whole run before any write, so a transient API error never turns into
+  PATCHes.
 * `apply` never runs without `--yes`.
 * The token comes only from `SEMGREP_APP_TOKEN`. Never commit a `.env`; the
   `.gitignore` blocks it.
@@ -371,8 +382,9 @@ stopped. Reports contain project names and ids. They never contain the token.
   v2 spec: `https://semgrep.dev/api/v2/openapi.yaml` (the `public_v2.openapi.yaml`
   path returns 404).
 * `GET /api/v1/deployments/{slug}/projects` pages with zero-based `page` and
-  `page_size` (the live API rejects values outside 100-3000) and returns no
-  total or cursor. The tool reads until an empty
+  `page_size` and returns no total or cursor. On 2026-09-17 the live API
+  rejected `page_size` outside 100-3000 with a 400; the spec does not state
+  this, so it may change. The `--page-size` flag enforces the same range. The tool reads until an empty
   page rather than trusting a short page, in case the server caps `page_size`.
 * The projects list does not include Managed Scan settings, only `tags`.
   Current state comes from `POST /api/sms/v2/deployments/{id}/project_settings`
@@ -398,7 +410,7 @@ stopped. Reports contain project names and ids. They never contain the token.
 
 All HTTP is mocked with `respx`; the suite never contacts the network. The
 GitHub Actions workflow in `.github/workflows/ci.yml` runs the suite on
-Python 3.10, 3.12 and 3.13 and smoke-tests the built wheel.
+Python 3.11, 3.12 and 3.13 and smoke-tests the built wheel.
 
 ## Environment variables
 

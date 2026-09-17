@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 (2026-09-17)
+
+Review fixes before wider sharing.
+
+- Projects tagged `managed-scan` whose settings could not be read are now
+  reported as `unknown-state` and left alone; `--patch-unknown` restores the
+  previous behaviour of enabling/disabling them. Previously they were
+  written without being called out.
+- README: Python version statement corrected to 3.11+ everywhere; the Azure
+  DevOps auto-enrolment behaviour is described as observed rather than
+  documented; the page-size limits are labelled as live observation; the
+  exclude-mode `no-op` case and the precedence of `--allow-mass-disable`
+  over `--max-disable` are spelled out.
+
 ## 0.2.0 (2026-09-17)
 
 Fewer steps to run.
