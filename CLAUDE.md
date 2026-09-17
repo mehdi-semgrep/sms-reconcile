@@ -1,8 +1,8 @@
 # sms-reconcile
 
 CLI that reconciles Semgrep Managed Scan settings against a repository list.
-Read `README.md` first; the API notes section records live behaviour that
-differs from the OpenAPI spec.
+Read `README.md` first, then `docs/api-notes.md`, which records live API
+behaviour that differs from the OpenAPI spec.
 
 ## Commands
 
@@ -27,4 +27,4 @@ uv venv .venv && uv pip install --python .venv/bin/python -e '.[dev]'
   confirmation or `--yes`; confirmation must never come from a config file, must skip
   projects already in the desired state, and must be re-read afterwards.
 - When the live API contradicts the spec, encode the live behaviour in
-  `tests/conftest.py`'s fake and note it in the README API notes.
+  `tests/conftest.py`'s fake and note it in `docs/api-notes.md`.
