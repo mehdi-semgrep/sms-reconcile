@@ -13,11 +13,53 @@ Built for deployments with thousands of projects: every run starts with a
 read-only plan, applies are idempotent (already-correct projects are skipped),
 429s are honoured, and every run can emit a JSON report.
 
+## Quick start
+
+```bash
+uv tool install git+https://github.com/mehdi-semgrep/sms-reconcile   # or: pipx install git+https://github.com/mehdi-semgrep/sms-reconcile
+export SEMGREP_APP_TOKEN=...        # token with the "Web API" scope, from https://semgrep.dev/orgs/-/settings/tokens
+sms-reconcile whoami                # which deployment the token reaches, and whether the scope is right
+sms-reconcile plan --list repos.csv # read-only: what would change
+sms-reconcile apply --list repos.csv  # shows the plan, asks "Apply N change(s)?", applies, re-reads to verify
+sms-reconcile verify --list repos.csv # exit 1 if anything drifted
+```
+
+No `--slug` is needed when the token reaches one deployment, which is the
+normal case. Every run writes `sms-reconcile-<command>-<time>.json` to the
+current directory as an audit trail (`--no-report` to skip).
+
+To run without installing anything:
+
+```bash
+uvx --from git+https://github.com/mehdi-semgrep/sms-reconcile sms-reconcile plan --list repos.csv
+```
+
+### Put the options in a file
+
+For repeated or scheduled runs, keep the options in `sms-reconcile.toml` in
+the directory you run from. `sms-reconcile init` writes a commented starter:
+
+```toml
+list = "repos.csv"
+mode = "include"
+exclude_patterns = ["local_scan/*"]
+only_changes = true
+
+[apply]
+max_disable = 100
+```
+
+Then the commands shrink to `sms-reconcile plan`, `sms-reconcile apply`,
+`sms-reconcile verify`. Command-line flags override the file. `--config
+path.toml` points at a file elsewhere. The token is never read from the
+file, and `yes` is rejected if it appears there: confirmation always comes
+from the terminal prompt or an explicit `--yes`.
+
 ## Project layout
 
 ```
 src/sms_reconcile/
-  cli.py            click commands: plan / apply / verify, exit codes, mass-disable guard
+  cli.py            click commands: plan / apply / verify / whoami / init, config file, exit codes, mass-disable guard
   client.py         httpx wrapper for the Semgrep API: retries, Retry-After, shared 429 pause
   sources.py        list ingestion: CSV/TSV, JSON, plain text, URL normalisation
   planner.py        matching (full or bare name), include/exclude modes, plan actions
@@ -27,6 +69,7 @@ src/sms_reconcile/
 tests/
   conftest.py       stateful fake of the Semgrep API mounted on respx
   test_cli.py       end-to-end CLI behaviour (all HTTP mocked)
+  test_usability.py config file, slug resolution, confirmation prompt, whoami, init
   test_sources.py   list formats
   test_scale.py     5,000-project Azure DevOps-style rehearsal
   test_units.py     encoding, Retry-After parsing, shared pause
@@ -34,28 +77,15 @@ examples/repos.csv  minimal list file
 .env.example        the one environment variable, with an empty value
 ```
 
-## Install
+## Install for development
 
-Requires Python 3.10+. Dependencies are pinned (`httpx`, `click`; `pytest`
-and `respx` for tests). Nothing else is contacted but `https://semgrep.dev`.
+Requires Python 3.11+. Dependencies are pinned (`httpx`, `click`; `pytest`
+and `respx` for tests). Nothing is contacted but `https://semgrep.dev`.
 
 ```bash
-cd sms-reconcile
+git clone https://github.com/mehdi-semgrep/sms-reconcile && cd sms-reconcile
 uv venv .venv && uv pip install --python .venv/bin/python -e '.[dev]'
-```
-
-Or with plain pip:
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
-```
-
-Export a Semgrep API token that has the **Web API** scope. The token is read
-from this environment variable only. There is no CLI flag for it, it is never
-written to disk, and it is scrubbed from every log line and report.
-
-```bash
-export SEMGREP_APP_TOKEN=...   # from https://semgrep.dev/orgs/-/settings/tokens
+.venv/bin/python -m pytest
 ```
 
 ## Commands
@@ -64,7 +94,7 @@ All three commands take the same core options:
 
 | Option | Meaning |
 | --- | --- |
-| `--slug <slug>` | Deployment slug (Settings > General). Resolved to the numeric id via `GET /api/v1/deployments`. |
+| `--slug <slug>` | Deployment slug. Optional when the token reaches exactly one deployment; required (and checked) otherwise. |
 | `--list <file>` | Repositories that should have Managed Scans enabled: CSV/TSV, JSON or plain text (formats below). |
 | `--list-format`, `--list-field` | Force the list format; name the column or field holding the project name. |
 | `--mode include\|exclude` | `include` (default): the list is the complete desired state. `exclude`: the list is what to turn off, everything else is left alone. See below. |
@@ -72,7 +102,8 @@ All three commands take the same core options:
 | `--exclude-pattern <glob>` | Leave matching projects untouched. Repeatable, case-insensitive, e.g. `local_scan/*`. |
 | `--allow-ambiguous` | With `--match repo`, select every project a bare name matches instead of skipping them. |
 | `--only-changes` | Hide `no-op`, `not-managed` and `excluded` rows from the table. The summary line stays complete. |
-| `--report <path>` | Write a JSON report of the run. Written even when the run fails or is interrupted. |
+| `--report <path>`, `--no-report` | Where to write the JSON run report (default `sms-reconcile-<command>-<time>.json` in the current directory), or skip it. Written even when the run fails or is interrupted. |
+| `--config <file>` | Options file (default `./sms-reconcile.toml` if present). Goes before the command: `sms-reconcile --config x.toml plan`. |
 | `--concurrency N` | Cap on concurrent API calls (default 4). |
 | `--max-retries N` | Retries for 429, 5xx and transport errors (default 5). |
 | `--verbose-names` | Allow project names in log lines. By default logs carry project ids only. |
@@ -95,7 +126,7 @@ is an explicit entry and an empty list is simply nothing to do.
 ### `plan` (read-only, exit 0)
 
 ```bash
-sms-reconcile plan --slug acme --list repos.csv --report plan.json
+sms-reconcile plan --list repos.csv
 ```
 
 Prints one row per project with current state, desired state and action:
@@ -115,21 +146,23 @@ Prints one row per project with current state, desired state and action:
 read-only `POST /api/sms/v2/deployments/{id}/project_settings` to learn the
 current settings.
 
-### `apply` (refuses without `--yes`)
+### `apply`
 
 ```bash
-sms-reconcile apply --yes --slug acme --list repos.csv --report apply.json
+sms-reconcile apply --list repos.csv
 ```
 
-Recomputes the plan, prints it, then PATCHes only the `enable` / `disable`
-rows. By default it uses the stable per-project endpoint
+Recomputes the plan, prints it, and in a terminal asks
+`Apply N change(s) to deployment 'acme' (x enable, y disable)?` before
+touching anything. When there is no terminal (CI, cron) it refuses unless
+`--yes` is given. It then PATCHes only the `enable` / `disable` rows. By default it uses the stable per-project endpoint
 `PATCH /api/v1/deployments/{slug}/projects/{projectName}/managed-scan`, with
 `--concurrency` workers. After applying it re-reads the touched projects'
 settings and reports any that did not land (skip with `--no-verify`).
 
 Exit codes: `0` everything applied and verified, `1` any failure or post-apply
-drift, `2` usage error (including a missing `--yes` or token), `3` the
-mass-disable guard refused the plan.
+drift, `2` not confirmed or usage error (missing `--yes` off-terminal, bad
+list, missing token), `3` the mass-disable guard refused the plan.
 
 #### Mass-disable guard
 
@@ -148,7 +181,7 @@ guard off entirely with `--allow-mass-disable`.
 #### `--bulk` uses an experimental endpoint
 
 ```bash
-sms-reconcile apply --yes --bulk --batch-size 50 --slug acme --list repos.csv
+sms-reconcile apply --bulk --batch-size 50 --list repos.csv
 ```
 
 > **Warning.** `--bulk` sends batches to
@@ -159,10 +192,17 @@ sms-reconcile apply --yes --bulk --batch-size 50 --slug acme --list repos.csv
 > still runs. Prefer the default per-project path unless you have thousands
 > of changes and have tested `--bulk` against a non-production deployment.
 
+### `whoami` and `init`
+
+`sms-reconcile whoami` prints the deployment(s) the token reaches and tells
+you plainly when the token lacks the Web API scope, which Semgrep otherwise
+reports as a bare 404. `sms-reconcile init` writes a commented
+`sms-reconcile.toml` in the current directory.
+
 ### `verify` (read-only, exit 1 on drift)
 
 ```bash
-sms-reconcile verify --slug acme --list repos.csv --report verify.json
+sms-reconcile verify --list repos.csv
 ```
 
 Re-reads every project's settings and exits `1` if any managed project is not
@@ -258,11 +298,10 @@ project names may contain spaces.
    `{"value": [...]}`. Any of the list formats above work; the point is that
    entries resolve to full names, not bare repo names.
 
-2. Plan, read-only, with a larger page size so 5,000 projects take 5 list
-   calls instead of 50:
+2. Plan, read-only (5,000 projects take 5 list calls at the default page size):
 
    ```bash
-   sms-reconcile plan --slug <slug> --list repos.json --page-size 1000 --only-changes --report plan.json
+   sms-reconcile plan --list repos.json --only-changes
    ```
 
    Check `not-found-in-deployment` rows first: they mean the URL path does
@@ -276,7 +315,7 @@ project names may contain spaces.
    run only:
 
    ```bash
-   sms-reconcile apply --yes --slug <slug> --list repos.json --page-size 1000 --concurrency 8 --max-disable 3500 --only-changes --report apply.json
+   sms-reconcile apply --list repos.json --concurrency 8 --max-disable 3500 --only-changes
    ```
 
    `--bulk --batch-size 100` is faster (8 calls for 800 changes instead of
@@ -287,7 +326,7 @@ project names may contain spaces.
    repo that is not on the list, or someone re-enables one:
 
    ```bash
-   sms-reconcile verify --slug <slug> --list repos.json --page-size 1000 --report verify.json
+   sms-reconcile verify --list repos.json
    ```
 
 Verified behaviour at this scale is covered by a mocked rehearsal

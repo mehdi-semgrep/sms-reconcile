@@ -9,7 +9,8 @@ differs from the OpenAPI spec.
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python -e '.[dev]'
 .venv/bin/python -m pytest          # all HTTP mocked via respx; never hits the network
-.venv/bin/sms-reconcile plan --slug <slug> --list examples/repos.csv
+.venv/bin/sms-reconcile whoami
+.venv/bin/sms-reconcile plan --list examples/repos.csv   # --slug optional when the token reaches one deployment
 ```
 
 ## Conventions
@@ -22,7 +23,8 @@ uv venv .venv && uv pip install --python .venv/bin/python -e '.[dev]'
   `--verbose-names`. Do not put project names in exception messages that are
   logged at INFO or above.
 - Only `https://semgrep.dev` may be contacted. No telemetry.
-- Every mutating path must be reachable only from `apply --yes`, must skip
+- Every mutating path must be reachable only from `apply` after the terminal
+  confirmation or `--yes`; confirmation must never come from a config file, must skip
   projects already in the desired state, and must be re-read afterwards.
 - When the live API contradicts the spec, encode the live behaviour in
   `tests/conftest.py`'s fake and note it in the README API notes.

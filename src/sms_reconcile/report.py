@@ -82,8 +82,8 @@ class RunReport:
     def set_drift(self, items: list[PlanItem]) -> None:
         self.data["drift"] = [i.to_dict() for i in items]
 
-    def set_deployment_id(self, deployment_id: int) -> None:
-        self.data["deployment"]["id"] = deployment_id
+    def set_deployment(self, slug: str, deployment_id: int) -> None:
+        self.data["deployment"] = {"slug": slug, "id": deployment_id}
 
     def set_status(self, status: str, error: Optional[str] = None) -> None:
         self.data["status"] = status

@@ -129,6 +129,10 @@ def write_list(tmp_path: Path, entries: list[str], header: Optional[str] = "name
     return path
 
 
-def invoke(runner: CliRunner, *args: str):
-    result = runner.invoke(main, list(args), catch_exceptions=False)
+def invoke(runner: CliRunner, *args: str, **kwargs):
+    """Run the CLI. Adds --no-report unless the test asks for a report, so the repo stays clean."""
+    argv = list(args)
+    if argv and argv[0] in ("plan", "apply", "verify") and "--report" not in argv and "--no-report" not in argv:
+        argv.append("--no-report")
+    result = runner.invoke(main, argv, catch_exceptions=False, **kwargs)
     return result

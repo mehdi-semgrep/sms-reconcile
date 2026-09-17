@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0 (2026-09-17)
+
+Fewer steps to run.
+
+- `--slug` is optional: resolved from the token when it reaches exactly one
+  deployment.
+- `sms-reconcile.toml` in the current directory (or `--config`) supplies
+  default options; `sms-reconcile init` writes a starter. `yes` cannot come
+  from the file.
+- `apply` in a terminal shows the plan and asks for confirmation; `--yes` is
+  only required when not interactive (CI, cron). Declining exits 2.
+- A JSON report is written by default to
+  `sms-reconcile-<command>-<UTC time>.json`; `--no-report` opts out.
+- `sms-reconcile whoami` shows the deployment the token reaches and explains
+  a missing Web API scope.
+- One-line install: `uv tool install git+https://github.com/mehdi-semgrep/sms-reconcile`.
+- Default `--page-size` raised to 1000. Requires Python 3.11+.
+
 ## 0.1.0 (2026-09-17)
 
 First release.
