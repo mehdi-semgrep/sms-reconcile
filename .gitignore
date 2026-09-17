@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env-test
+!.env.example
 runs/
 *-report.json
 scripts/rotate-semgrep-token.py
