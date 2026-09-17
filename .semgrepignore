@@ -1,0 +1,6 @@
+# Overrides Semgrep's default ignore list so tests/ is scanned too.
+.venv/
+dist/
+build/
+runs/
+.pytest_cache/
