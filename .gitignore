@@ -1,0 +1,16 @@
+# secrets and local state
+.env
+.env.*
+!.env-test
+runs/
+*-report.json
+scripts/rotate-semgrep-token.py
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/

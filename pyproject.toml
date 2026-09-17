@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sms-reconcile"
+version = "0.1.0"
+description = "Reconcile Semgrep Managed Scan settings against a source-of-truth repository list."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+    "httpx==0.28.1",
+    "click==8.1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.5",
+    "respx==0.22.0",
+]
+
+[project.scripts]
+sms-reconcile = "sms_reconcile.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv]
+# Org policy: 1-week cooldown on newly published packages.
+exclude-newer = "1 week"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
